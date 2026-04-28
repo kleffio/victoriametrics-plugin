@@ -1,0 +1,41 @@
+{
+  "id": "victoriametrics-plugin",
+  "name": "VictoriaMetrics",
+  "type": "observability",
+  "tier": 2,
+  "description": "Time-series metrics backend. Receives workload metrics from the platform via gRPC and stores them in VictoriaMetrics.",
+  "longDescription": "Deploys a gRPC wrapper alongside a VictoriaMetrics container. The platform forwards workload metric samples via IngestMetrics gRPC calls; the wrapper writes them to VictoriaMetrics using the Prometheus import API.\n\nExposes a PromQL-compatible query endpoint at http://victoriametrics:8428 for Grafana and other visualizers.",
+  "tags": ["observability", "metrics", "victoriametrics", "prometheus", "timeseries"],
+  "capabilities": ["monitoring.metrics"],
+  "author": "Kleff",
+  "repo": "https://github.com/kleffio/plugins/victoriametrics-plugin",
+  "image": "ghcr.io/kleffio/victoriametrics-plugin",
+  "version": "0.1.0",
+  "license": "MIT",
+  "verified": true,
+  "output": {
+    "protocol": "remote_write",
+    "path": "/api/v1/write"
+  },
+  "companions": [
+    {
+      "id": "victoriametrics",
+      "image": "victoriametrics/victoria-metrics:v1.99.0",
+      "command": ["-retentionPeriod=12", "-storageDataPath=/victoria-metrics-data"],
+      "ports": [{ "container": 8428, "host": 8428 }],
+      "volumes": [{ "name": "kleff-victoriametrics-data", "target": "/victoria-metrics-data" }],
+      "internalAddr": "http://victoriametrics:8428",
+      "skipIfEnv": "VICTORIA_METRICS_URL"
+    }
+  ],
+  "config": [
+    {
+      "key": "VICTORIA_METRICS_URL",
+      "label": "VictoriaMetrics URL",
+      "description": "Override to use an external VictoriaMetrics instance. Leave blank to use the bundled companion.",
+      "type": "url",
+      "required": false,
+      "advanced": true
+    }
+  ]
+}
