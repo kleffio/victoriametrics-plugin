@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"embed"
 	"io/fs"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/kleffio/victoriametrics-plugin/internal/adapters/victoriametrics"
 	"github.com/kleffio/victoriametrics-plugin/internal/application"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 //go:embed dist/index.js
@@ -33,7 +35,21 @@ func main() {
 	svc := application.New(vmClient)
 	srv := grpcadapter.New(svc)
 
-	gs := grpc.NewServer()
+	var serverOpts []grpc.ServerOption
+	if certPEM := env("PLUGIN_TLS_CERT_PEM", ""); certPEM != "" {
+		keyPEM := env("PLUGIN_TLS_KEY_PEM", "")
+		cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+		if err != nil {
+			logger.Error("invalid TLS cert/key", "error", err)
+			os.Exit(1)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{cert},
+		})))
+		logger.Info("gRPC server configured with mTLS")
+	}
+
+	gs := grpc.NewServer(serverOpts...)
 	pluginsv1.RegisterPluginHealthServer(gs, srv)
 	pluginsv1.RegisterMonitoringFrameworkServer(gs, srv)
 
