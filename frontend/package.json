@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@kleffio/sdk": "github:kleffio/plugin-sdk-js#v0.1.0",
+    "@kleffio/sdk": "github:kleffio/plugin-sdk-js#v0.1.2",
     "@types/react": "^19.0.0",
     "react": "^19.0.0",
     "recharts": "2.15.4",
