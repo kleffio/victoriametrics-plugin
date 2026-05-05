@@ -637,7 +637,19 @@ export function ContainerCharts({ projectId, refreshKey }: Props) {
 
 export function HostCharts({ refreshKey, showHost }: Props) {
   const { api } = usePluginContext();
-  if (!showHost) return null;
+  const [hasSource, setHasSource] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!showHost) return;
+    const now = Math.floor(Date.now() / 1000);
+    api.get<PromResponse>(
+      `/api/v1/metrics/query_range?query=node_uname_info&start=${now - 120}&end=${now}&step=60`
+    )
+      .then((r) => setHasSource(r?.status === "success" && (r?.data?.result?.length ?? 0) > 0))
+      .catch(() => setHasSource(false));
+  }, [api, showHost, refreshKey]);
+
+  if (!showHost || !hasSource) return null;
   return <HostSection api={api} refreshKey={refreshKey} />;
 }
 
