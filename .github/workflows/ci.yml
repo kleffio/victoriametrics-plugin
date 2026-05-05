@@ -7,10 +7,25 @@ on:
     branches: [main]
 
 jobs:
-  build-backend:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Copy dist for Go embed
+        run: cp -r frontend/dist cmd/plugin/dist
 
       - uses: actions/setup-go@v5
         with:
@@ -25,29 +40,6 @@ jobs:
 
       - name: Test
         run: go test ./...
-
-  build-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install dependencies
-        working-directory: frontend
-        run: npm install
-
-      - name: Build
-        working-directory: frontend
-        run: npm run build
-
-  build-docker:
-    runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
-    steps:
-      - uses: actions/checkout@v4
 
       - name: Build Docker image
         uses: docker/build-push-action@v6
