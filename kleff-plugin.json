@@ -9,7 +9,7 @@
   "capabilities": ["monitoring.metrics"],
   "author": "Kleff",
   "repo": "https://github.com/kleffio/plugins/victoriametrics-plugin",
-  "image": "ghcr.io/kleffio/victoriametrics-plugin",
+  "image": "ghcr.io/kleffio/metrics-victoriametrics",
   "version": "0.1.0",
   "license": "MIT",
   "verified": true,
