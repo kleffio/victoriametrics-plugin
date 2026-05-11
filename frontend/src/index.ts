@@ -1,5 +1,5 @@
 import { definePlugin } from "@kleffio/sdk";
-import { WorkloadCharts, WorkloadTotalCharts, ContainerCharts, HostCharts } from "./MonitoringCharts";
+import { WorkloadDualSection, ContainerHostDualSection, AdminMonitoringSection } from "./MonitoringCharts";
 
 const victoriametricsPlugin = definePlugin({
   manifest: {
@@ -10,27 +10,21 @@ const victoriametricsPlugin = definePlugin({
     slots: [
       {
         slot: "monitoring.charts",
-        component: WorkloadCharts,
+        component: WorkloadDualSection,
         priority: 50,
-        provides: ["workload.cpu", "workload.memory", "workload.network", "workload.disk"],
+        provides: ["workload.cpu", "workload.memory", "workload.network", "workload.disk", "workload.total.cpu", "workload.total.memory", "workload.total.network", "workload.total.disk"],
       },
       {
         slot: "monitoring.charts",
-        component: WorkloadTotalCharts,
+        component: ContainerHostDualSection,
         priority: 51,
-        provides: ["workload.total.cpu", "workload.total.memory", "workload.total.network", "workload.total.disk"],
+        provides: ["container.cpu", "container.memory", "container.network", "container.disk", "host.cpu", "host.memory", "host.network", "host.disk"],
       },
       {
-        slot: "monitoring.charts",
-        component: ContainerCharts,
+        slot: "admin.monitoring",
+        component: AdminMonitoringSection,
         priority: 50,
-        provides: ["container.cpu", "container.memory", "container.network", "container.disk"],
-      },
-      {
-        slot: "monitoring.charts",
-        component: HostCharts,
-        priority: 50,
-        provides: ["host.cpu", "host.memory", "host.network", "host.disk"],
+        provides: ["admin.monitoring.charts"],
       },
     ],
   },
