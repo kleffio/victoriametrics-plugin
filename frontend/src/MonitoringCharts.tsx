@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   LineChart,
   Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -12,8 +14,10 @@ import { usePluginContext } from "@kleffio/sdk";
 
 interface Props {
   projectId?: string;
+  workloadId?: string;
   refreshKey?: number;
   showHost?: boolean;
+  compact?: boolean;
 }
 
 interface PromResult {
@@ -162,14 +166,15 @@ function WorkloadDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const activeCount = allWorkloads.filter((wl) => selected.has(wl)).length;
   const label =
-    selected.size === allWorkloads.length
+    activeCount === allWorkloads.length
       ? `All workloads (${allWorkloads.length})`
-      : selected.size === 0
+      : activeCount === 0
       ? "None selected"
-      : selected.size === 1
-      ? [...selected][0]
-      : `${selected.size} of ${allWorkloads.length} workloads`;
+      : activeCount === 1
+      ? allWorkloads.find((wl) => selected.has(wl)) ?? "1 workload"
+      : `${activeCount} of ${allWorkloads.length} workloads`;
 
   return (
     <div ref={ref} style={{ position: "relative", userSelect: "none" }}>
@@ -279,14 +284,89 @@ function Chart({
   data,
   colorMap,
   showTotal,
+  compact,
 }: {
   title: string;
   unit: string;
   data: DataPoint[];
   colorMap: Map<string, string>;
   showTotal: boolean;
+  compact?: boolean;
 }) {
   const workloads = useMemo(() => allKeys(data), [data]);
+  const chartHeight = compact ? 52 : 160;
+  const emptyHeight = compact ? 40 : 140;
+
+  // For compact mode: pick the primary color and compute the latest total value
+  const primaryColor = showTotal ? TOTAL_COLOR : (colorMap.get(workloads[0]) ?? COLORS[0]);
+  const latestValue = useMemo(() => {
+    if (!compact || data.length === 0) return null;
+    const last = data[data.length - 1];
+    let sum = 0;
+    for (const wl of workloads) {
+      const v = last[wl];
+      if (typeof v === "number") sum += v;
+    }
+    return parseFloat(sum.toFixed(2));
+  }, [compact, data, workloads]);
+
+  if (compact) {
+    const gradientId = `grad-${title.replace(/\s+/g, "")}`;
+    return (
+      <div
+        style={{
+          borderRadius: 10,
+          border: `1px solid ${primaryColor}22`,
+          background: `linear-gradient(160deg, ${primaryColor}0d 0%, rgba(0,0,0,0) 60%), var(--card)`,
+          padding: "10px 12px 0",
+          boxShadow: `0 0 0 1px ${primaryColor}11 inset, 0 2px 8px rgba(0,0,0,0.4)`,
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            {title}
+          </span>
+          <span style={{ fontSize: 9, color: primaryColor, opacity: 0.6 }}>{unit}</span>
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "rgba(255,255,255,0.9)", lineHeight: 1, marginBottom: 8, fontVariantNumeric: "tabular-nums" }}>
+          {latestValue !== null ? latestValue : <span style={{ opacity: 0.25, fontSize: 13 }}>—</span>}
+        </div>
+        {data.length === 0 ? (
+          <div style={{ height: emptyHeight }} />
+        ) : (
+          <ResponsiveContainer width="100%" height={chartHeight}>
+            <AreaChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={primaryColor} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={primaryColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Tooltip
+                contentStyle={{ background: "var(--card)", border: `1px solid ${primaryColor}33`, borderRadius: 6, fontSize: 10 }}
+                labelStyle={{ color: "rgba(255,255,255,0.4)", marginBottom: 2 }}
+                formatter={(v: number) => [`${v} ${unit}`]}
+              />
+              {workloads.map((wl, i) => (
+                <Area
+                  key={wl}
+                  type="monotone"
+                  dataKey={wl}
+                  stroke={showTotal ? TOTAL_COLOR : (colorMap.get(wl) ?? COLORS[i % COLORS.length])}
+                  strokeWidth={1.5}
+                  fill={i === 0 ? `url(#${gradientId})` : "none"}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -305,7 +385,7 @@ function Chart({
       {data.length === 0 ? (
         <div
           style={{
-            height: 140,
+            height: emptyHeight,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -316,7 +396,7 @@ function Chart({
           No data
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={160}>
+        <ResponsiveContainer width="100%" height={chartHeight}>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
             <XAxis
@@ -366,10 +446,12 @@ function ContainerSection({
   api,
   projectId,
   refreshKey,
+  compact,
 }: {
   api: ReturnType<typeof usePluginContext>["api"];
   projectId?: string;
   refreshKey?: number;
+  compact?: boolean;
 }) {
   // image!="" filters to real containers only (excludes host/cgroup entries).
   // kleff.io/project_id is set by the daemon on all workload containers; cAdvisor
@@ -408,18 +490,16 @@ function ContainerSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
+      <div style={{ textAlign: "center" }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: `${COLORS[0]}99`, textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Containers (cAdvisor)
         </p>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Chart title="CPU Usage"    unit="millicores" data={cpuData}  colorMap={colorMap} showTotal={false} />
-        <Chart title="Memory Usage" unit="MB"         data={memData}  colorMap={colorMap} showTotal={false} />
-        <Chart title="Network Rx"   unit="MB/s"       data={netData}  colorMap={colorMap} showTotal={false} />
-        <Chart title="Disk I/O"     unit="MB/s"       data={diskData} colorMap={colorMap} showTotal={false} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: compact ? 8 : 16 }}>
+        <Chart title="CPU Usage"    unit="millicores" data={cpuData}  colorMap={colorMap} showTotal={false} compact={compact} />
+        <Chart title="Memory Usage" unit="MB"         data={memData}  colorMap={colorMap} showTotal={false} compact={compact} />
+        <Chart title="Network Rx"   unit="MB/s"       data={netData}  colorMap={colorMap} showTotal={false} compact={compact} />
+        <Chart title="Disk I/O"     unit="MB/s"       data={diskData} colorMap={colorMap} showTotal={false} compact={compact} />
       </div>
     </div>
   );
@@ -430,9 +510,11 @@ function ContainerSection({
 function HostSection({
   api,
   refreshKey,
+  compact,
 }: {
   api: ReturnType<typeof usePluginContext>["api"];
   refreshKey?: number;
+  compact?: boolean;
 }) {
   const cpuData = useQueryRange(
     api,
@@ -462,18 +544,16 @@ function HostSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
+      <div style={{ textAlign: "center" }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: `${HOST_COLOR}99`, textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Host (Node Exporter)
         </p>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Chart title="CPU Available" unit="%" data={cpuData} colorMap={hostColorMap} showTotal={false} />
-        <Chart title="Memory Available" unit="MB" data={memData} colorMap={hostColorMap} showTotal={false} />
-        <Chart title="Network Rx" unit="MB/s" data={netData} colorMap={hostColorMap} showTotal={false} />
-        <Chart title="Disk Read" unit="MB/s" data={diskData} colorMap={hostColorMap} showTotal={false} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: compact ? 8 : 16 }}>
+        <Chart title="CPU Available" unit="%" data={cpuData} colorMap={hostColorMap} showTotal={false} compact={compact} />
+        <Chart title="Memory Available" unit="MB" data={memData} colorMap={hostColorMap} showTotal={false} compact={compact} />
+        <Chart title="Network Rx" unit="MB/s" data={netData} colorMap={hostColorMap} showTotal={false} compact={compact} />
+        <Chart title="Disk Read" unit="MB/s" data={diskData} colorMap={hostColorMap} showTotal={false} compact={compact} />
       </div>
     </div>
   );
@@ -481,10 +561,13 @@ function HostSection({
 
 // ── Workload charts slot component ────────────────────────────────────────────
 
-export function WorkloadCharts({ projectId, refreshKey }: Props) {
+export function WorkloadCharts({ projectId, workloadId, refreshKey, compact }: Props) {
   const { api } = usePluginContext();
 
-  const filter = projectId ? `{project_id="${projectId}"}` : "";
+  const parts: string[] = [];
+  if (projectId) parts.push(`project_id="${projectId}"`);
+  if (workloadId) parts.push(`workload_id="${workloadId}"`);
+  const filter = parts.length > 0 ? `{${parts.join(",")}}` : "";
 
   const cpuMillicores = useQueryRange(api, `sum by (workload_name, workload_id) (kleff_workload_cpu_millicores${filter})`, 3600, 60, refreshKey);
   const memData      = useQueryRange(api, `sum by (workload_name, workload_id) (kleff_workload_memory_mb${filter})`,      3600, 60, refreshKey);
@@ -538,13 +621,12 @@ export function WorkloadCharts({ projectId, refreshKey }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <p style={{ margin: 0, fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
-            Per Workload
-          </p>
-          {allWorkloads.length > 0 && (
+      <div style={{ position: "relative", textAlign: "center", zIndex: 10 }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: `${COLORS[0]}99`, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          Per Workload
+        </p>
+        {allWorkloads.length > 0 && !workloadId && (
+          <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)" }}>
             <WorkloadDropdown
               allWorkloads={allWorkloads}
               colorMap={colorMap}
@@ -553,15 +635,14 @@ export function WorkloadCharts({ projectId, refreshKey }: Props) {
               onSelectAll={() => setSelected(new Set(allWorkloads))}
               onClearAll={() => setSelected(new Set())}
             />
-          )}
-        </div>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+          </div>
+        )}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Chart title="CPU Usage"    unit="cores" data={filteredCpu}  colorMap={colorMap} showTotal={false} />
-        <Chart title="Memory Usage" unit="MB"    data={filteredMem}  colorMap={colorMap} showTotal={false} />
-        <Chart title="Network In"   unit="MB"    data={filteredNet}  colorMap={colorMap} showTotal={false} />
-        <Chart title="Disk Read"    unit="MB"    data={filteredDisk} colorMap={colorMap} showTotal={false} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: compact ? 8 : 16 }}>
+        <Chart title="CPU Usage"    unit="cores" data={filteredCpu}  colorMap={colorMap} showTotal={false} compact={compact} />
+        <Chart title="Memory Usage" unit="MB"    data={filteredMem}  colorMap={colorMap} showTotal={false} compact={compact} />
+        <Chart title="Network In"   unit="MB"    data={filteredNet}  colorMap={colorMap} showTotal={false} compact={compact} />
+        <Chart title="Disk Read"    unit="MB"    data={filteredDisk} colorMap={colorMap} showTotal={false} compact={compact} />
       </div>
     </div>
   );
@@ -569,10 +650,13 @@ export function WorkloadCharts({ projectId, refreshKey }: Props) {
 
 // ── Workload total charts slot component ──────────────────────────────────────
 
-export function WorkloadTotalCharts({ projectId, refreshKey }: Props) {
+export function WorkloadTotalCharts({ projectId, workloadId, refreshKey, compact }: Props) {
   const { api } = usePluginContext();
 
-  const filter = projectId ? `{project_id="${projectId}"}` : "";
+  const parts: string[] = [];
+  if (projectId) parts.push(`project_id="${projectId}"`);
+  if (workloadId) parts.push(`workload_id="${workloadId}"`);
+  const filter = parts.length > 0 ? `{${parts.join(",")}}` : "";
 
   const cpuMillicores = useQueryRange(api, `sum by (workload_name, workload_id) (kleff_workload_cpu_millicores${filter})`, 3600, 60, refreshKey);
   const memData       = useQueryRange(api, `sum by (workload_name, workload_id) (kleff_workload_memory_mb${filter})`,      3600, 60, refreshKey);
@@ -600,18 +684,16 @@ export function WorkloadTotalCharts({ projectId, refreshKey }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
+      <div style={{ textAlign: "center" }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: `${TOTAL_COLOR}99`, textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Total
         </p>
-        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Chart title="CPU Usage"    unit="cores" data={totalCpu}  colorMap={totalColorMap} showTotal={true} />
-        <Chart title="Memory Usage" unit="MB"    data={totalMem}  colorMap={totalColorMap} showTotal={true} />
-        <Chart title="Network In"   unit="MB"    data={totalNet}  colorMap={totalColorMap} showTotal={true} />
-        <Chart title="Disk Read"    unit="MB"    data={totalDisk} colorMap={totalColorMap} showTotal={true} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: compact ? 8 : 16 }}>
+        <Chart title="CPU Usage"    unit="cores" data={totalCpu}  colorMap={totalColorMap} showTotal={true} compact={compact} />
+        <Chart title="Memory Usage" unit="MB"    data={totalMem}  colorMap={totalColorMap} showTotal={true} compact={compact} />
+        <Chart title="Network In"   unit="MB"    data={totalNet}  colorMap={totalColorMap} showTotal={true} compact={compact} />
+        <Chart title="Disk Read"    unit="MB"    data={totalDisk} colorMap={totalColorMap} showTotal={true} compact={compact} />
       </div>
     </div>
   );
@@ -619,7 +701,7 @@ export function WorkloadTotalCharts({ projectId, refreshKey }: Props) {
 
 // ── Container charts slot component ──────────────────────────────────────────
 
-export function ContainerCharts({ projectId, refreshKey }: Props) {
+export function ContainerCharts({ projectId, refreshKey, compact }: Props) {
   const { api } = usePluginContext();
   const [hasSource, setHasSource] = useState<boolean>(false);
 
@@ -630,12 +712,12 @@ export function ContainerCharts({ projectId, refreshKey }: Props) {
   }, [api]);
 
   if (!hasSource) return null;
-  return <ContainerSection api={api} projectId={projectId} refreshKey={refreshKey} />;
+  return <ContainerSection api={api} projectId={projectId} refreshKey={refreshKey} compact={compact} />;
 }
 
 // ── Host charts slot component ────────────────────────────────────────────────
 
-export function HostCharts({ refreshKey, showHost }: Props) {
+export function HostCharts({ refreshKey, showHost, compact }: Props) {
   const { api } = usePluginContext();
   const [hasSource, setHasSource] = useState<boolean>(false);
 
@@ -650,7 +732,70 @@ export function HostCharts({ refreshKey, showHost }: Props) {
   }, [api, showHost, refreshKey]);
 
   if (!showHost || !hasSource) return null;
-  return <HostSection api={api} refreshKey={refreshKey} />;
+  return <HostSection api={api} refreshKey={refreshKey} compact={compact} />;
+}
+
+// ── Combined side-by-side slot components ─────────────────────────────────────
+
+export function WorkloadDualSection({ projectId, workloadId, refreshKey, compact }: Props) {
+  if (workloadId) {
+    return <WorkloadCharts projectId={projectId} workloadId={workloadId} refreshKey={refreshKey} compact={compact} />;
+  }
+  if (!compact) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <WorkloadCharts projectId={projectId} refreshKey={refreshKey} compact={false} />
+        <WorkloadTotalCharts projectId={projectId} refreshKey={refreshKey} compact={false} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <WorkloadCharts projectId={projectId} refreshKey={refreshKey} compact={true} />
+      <WorkloadTotalCharts projectId={projectId} refreshKey={refreshKey} compact={true} />
+    </div>
+  );
+}
+
+export function ContainerHostDualSection({ projectId, refreshKey, showHost, compact }: Props) {
+  if (!compact) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <ContainerCharts projectId={projectId} refreshKey={refreshKey} compact={false} />
+        <HostCharts refreshKey={refreshKey} showHost={showHost} compact={false} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <ContainerCharts projectId={projectId} refreshKey={refreshKey} compact={true} />
+      <HostCharts refreshKey={refreshKey} showHost={showHost} compact={true} />
+    </div>
+  );
+}
+
+// ── Admin monitoring section (platform-wide, no project filter) ───────────────
+
+export function AdminMonitoringSection({ refreshKey }: Props) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>
+            Platform Monitoring
+          </p>
+          <p style={{ margin: "2px 0 0", fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
+            Real-time metrics across all workloads
+          </p>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <WorkloadCharts refreshKey={refreshKey} compact={true} />
+        <WorkloadTotalCharts refreshKey={refreshKey} compact={true} />
+      </div>
+      <ContainerHostDualSection refreshKey={refreshKey} showHost={true} compact={true} />
+    </div>
+  );
 }
 
 // ── Legacy export (workload + containers + host in one component) ──────────────
